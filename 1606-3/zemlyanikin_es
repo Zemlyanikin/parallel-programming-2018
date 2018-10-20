@@ -1,0 +1,196 @@
+#include "stdafx.h"
+#include "mpi.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <random>
+#include <cstdlib>
+#include <iostream>
+#include <ctime>
+
+using namespace std;
+
+void Print(const int* matrix, const int k, const int n) 
+{
+	for (int i=0;i<k;i++)
+	{
+		for (int j=0;j<n;j++) 
+			printf("%3d ",matrix[j*k+i]);
+		printf("\n");
+	}
+}
+
+void PrintLinMatrix(const int* matrix, const int k, const int n) 
+{
+	for (int i=0;i<(k*n);i++)
+		printf("%3d ",matrix[i]);
+}
+
+int FindMax(int* mas,int num, int k) 
+{
+	int max=0;
+	if (num>0)
+	{
+		int a=0;	
+		int locmax=0;
+		for (int j=0;j<(num/k);j++)
+		{
+			locmax=mas[a];
+			for(int i=a;i<a+k;i++)
+				if (locmax<mas[i])
+					locmax=mas[i];
+			max=(max*100)+locmax;
+			a+=k;
+		}
+	}	
+	else
+		max=INT_MIN;
+	return max;
+}
+
+int main(int argc, char* argv[])
+{
+	int k=2,n=2;
+	int* matr = nullptr;
+	int* ColumnMax=0;
+	int* TmpMax=0;
+
+	int numproc,rank; 
+	int *pSendNum; 
+	int *pSendInd;
+	int *recieve_buffer;
+	int *gather_buffer;
+	int ch, rem; 
+	
+	double start_time, end_time;
+	double lin_start_time, lin_end_time;
+
+	MPI_Init(&argc,&argv);
+	MPI_Comm_size(MPI_COMM_WORLD,&numproc);
+	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+
+	if (numproc<1)
+	{
+		printf("ERROR \n");
+		return 0;
+	}
+	if (rank==0)
+	{
+			printf("Size Of Matrix: \n");
+			printf("Number Of Rows: \n");
+			scanf_s("%d", &k);
+			printf("Number Of Columns: \n");
+			scanf_s("%d", &n);	
+
+			matr=new int [k*n];
+			for (int i=0;i<(k*n);i++)
+					matr[i]=0;
+			for (int i=0;i<(k*n);i++)
+				matr[i]=rand()%100;
+
+			printf("Print Matrix: \n");
+			Print(matr,k,n);
+			printf("Print Lin Matrix: \n");
+			PrintLinMatrix(matr,k,n);
+			printf("\n");
+			
+			ColumnMax=new int [n]; 
+			TmpMax=new int [numproc]; 
+
+			start_time=MPI_Wtime();
+	}
+
+	MPI_Bcast(&k,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&n,1,MPI_INT,0,MPI_COMM_WORLD);
+
+	pSendNum=new int[numproc]; 
+	pSendInd=new int[numproc]; 
+	ch=n/numproc;
+	rem=n%numproc;
+	for (int i=0;i<rem;i++)
+	{
+		pSendNum[i]=k*(ch+1);
+		pSendInd[i]=k*i*(ch+1);
+	}
+	for (int i=rem;i<numproc;i++)
+	{
+		pSendNum[i]=k*ch;
+		pSendInd[i]=k*(rem+i*ch);
+	}
+
+	recieve_buffer=new int[pSendNum[rank]]; 
+	gather_buffer=new int[numproc]; 
+	int max=0,i=0;
+
+		MPI_Scatterv(matr, pSendNum, pSendInd, MPI_INT, recieve_buffer, pSendNum[rank], MPI_INT, 0, MPI_COMM_WORLD);
+		
+		max=FindMax(recieve_buffer,pSendNum[rank],k);
+		MPI_Gather(&max,1,MPI_INT,gather_buffer,1,MPI_INT,0,MPI_COMM_WORLD);
+		if (rank==0)
+		{
+			for(int m=0;m<numproc;m++)
+				TmpMax[m]=gather_buffer[m];
+		}
+
+	if(rank==0)
+	{
+			int tmp=1;
+			int g=1;
+			for(int i=0;i<numproc;i++)
+			{
+						while(TmpMax[i]>100)
+						{
+							ColumnMax[(pSendInd[i]/k)-tmp+(pSendNum[i]/k)]=TmpMax[i]%100;
+							TmpMax[i]=TmpMax[i]/100;
+							tmp++;
+						}
+						if (int(TmpMax[i]/100)==0)
+						{
+							ColumnMax[(pSendInd[i]/k)-tmp+(pSendNum[i]/k)]=TmpMax[i]%100;
+							tmp++;
+						}
+				tmp=1;
+				g++;
+				}
+		end_time=MPI_Wtime();
+	}
+
+	if (n<20) 
+	{
+		for (int i=0;i<n;i++)
+			cout<<"Prll: Max in column "<<i<<" - "<<ColumnMax[i]<<endl;
+		printf("Prll Time=%f\n", end_time-start_time);
+	}
+
+
+	int *LinMax=new int[n];
+	lin_start_time=MPI_Wtime();
+	for(int i=0;i<n;i++)
+	{
+		int max4 = 0;
+		for(int j=0;j<k;j++)
+			if (matr[i*k+j]>max4)
+				max4=matr[i*k+j];
+		LinMax[i]=max4;
+	}
+	lin_end_time=MPI_Wtime();
+
+	if (n<20) 
+	{
+		for (int i=0;i<n;i++)
+			cout<<"Lin: Max in column "<<i<<" - "<<LinMax[i]<<endl;
+		printf("Lin Time=%f\n", lin_end_time-lin_start_time);
+	}
+
+	delete LinMax;
+	delete ColumnMax;
+	delete TmpMax;
+	delete pSendNum;
+	delete pSendInd;           
+	delete recieve_buffer;
+	delete gather_buffer;
+	system ("pause");
+
+	MPI_Finalize();
+
+	return 0;
+}
